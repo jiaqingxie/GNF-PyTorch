@@ -30,3 +30,15 @@ Related papers:
   year={2019}
 }
 ```
+
+How to run:
+1. run GNF
+```python
+python gnf.py --epochs 10 --lr 0.015 --dataset PubMed
+```
+2. run GVAE
+```python
+python train.py --load_config 'config/vgae.yaml'
+```
+
+Currently there's some bugs in the code that the AUC/ROC doesnt change. Also, QM9 needs to be included as mentioned in the paper as well. 
