@@ -11,15 +11,15 @@ from torch_geometric.utils import negative_sampling, remove_self_loops, add_self
 from torch_geometric.datasets import Planetoid
 from torch.optim import Adam
 from torch_geometric.utils import train_test_split_edges
-
+import argparse
 
 # Definition of Encoder
 class Encoder(nn.Module):
 
-    def __init__(self):
+    def __init__(self, input_channel):
         super(Encoder,self).__init__()
-        self.encoder1 = GATConv(500,50)
-        self.encoder2 = GATConv(50,4)
+        self.encoder1 = GATConv(input_channel,50)
+        self.encoder2 = GATConv(50,40)
 
     def forward(self,x):
         x, edge_index = x.x, x.train_pos_edge_index
@@ -30,10 +30,10 @@ class Encoder(nn.Module):
 # Definition of Encoder
 class Decoder(nn.Module):
 
-    def __init__(self):
+    def __init__(self, input_channel):
         super(Decoder,self).__init__()
-        self.decoder1 = GATConv(4,50)
-        self.decoder2 = GATConv(50,500)
+        self.decoder1 = GATConv(40,50)
+        self.decoder2 = GATConv(50,input_channel)
 
     def forward(self,x,edge_index):
         x = F.relu(self.decoder1(x,edge_index))
@@ -46,13 +46,13 @@ class GNF(nn.Module):
 
     def __init__(self):
         super(GNF,self).__init__()
-        self.F1 = GATConv(2,2)
-        self.F2 = GATConv(2,2)
-        self.G1 = GATConv(2,2)
-        self.G2 = GATConv(2,2)
+        self.F1 = GATConv(20,20)
+        self.F2 = GATConv(20,20)
+        self.G1 = GATConv(20,20)
+        self.G2 = GATConv(20,20)
 
     def forward(self,x,edge_index):
-        x1,x2 = x[:,:2], x[:,2:]
+        x1,x2 = x[:,:20], x[:,20:]
         x1,x2,s1 = self.f_a(x1,x2,edge_index)
         x2,x1,s2 = self.f_b(x2,x1,edge_index)
         # Calculate Jacobian
@@ -84,7 +84,7 @@ class GNF(nn.Module):
         return z1,z2,s_x
 
     def inverse(self,z,edge_index):
-        z1,z2 = z[:,:2], z[:,2:]
+        z1,z2 = z[:,:20], z[:,20:]
         z1,z2,s1 = self.inverse_b(z1,z2,edge_index)
         z2,z1,s2 = self.inverse_a(z2,z1,edge_index)
         # Calculate Jacobian
@@ -133,23 +133,36 @@ class GNF(nn.Module):
 
 if __name__ == "__main__":
 
+    args =argparse.ArgumentParser()
+    args.add_argument('--lr', type=float, default=0.01 )
+    args.add_argument('--dataset', type=str, default="Cora")
+    args.add_argument('--epochs', type=int, default=10)
+    args = args.parse_args()
+
+
+    if args.dataset == "Cora":
+        input_channel = 1433
+    elif args.dataset == "Citeseer":
+        input_channel = 3703
+    elif args.dataset == "PubMed":
+        input_channel = 500
+
     torch.manual_seed(12345)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    dataset = Planetoid("datasets", 'PubMed', transform=T.NormalizeFeatures())
+    dataset = Planetoid("datasets", args.dataset, transform=T.NormalizeFeatures())
     data = dataset[0].to(device)
     all_edge_index = data.edge_index
     data = train_test_split_edges(data, 0.05, 0.01)
         
 
-    encoder = Encoder()
-    decoder = Decoder()
+    encoder = Encoder(input_channel)
+    decoder = Decoder(input_channel)
     gnf = GNF()
 
     params = list(encoder.parameters()) + list(decoder.parameters()) + list(gnf.parameters())
-    optimizer = Adam(params , lr=0.01)
-    max_epoch = 50
-
+    optimizer = Adam(params , lr=args.lr)
+    max_epoch = args.epochs
 
 
     for epoch in range(max_epoch):
@@ -163,12 +176,10 @@ if __name__ == "__main__":
         log_det_xz = log_det_xz.mm(torch.ones(log_det_xz.t().size()))
         #self.log_det_xz.append(log_det_xz)
 
-
-
         # Sample
         z = torch.cat((z1,z2),dim=1)
         n = Normal(z, torch.ones(z.size())*0.3)
-        z = n.sample()# bug here since no grad here
+        z = n.sample()
         # Inverse
         z1,z2, log_det_zx = gnf.inverse(z,edge_index)
         log_det_zx = log_det_zx.unsqueeze(0)
@@ -190,7 +201,7 @@ if __name__ == "__main__":
 
         neg_loss = -torch.log(1 - y + 1e-15).mean()
 
-        loss = neg_loss + pos_loss
+        loss = pos_loss + neg_loss
         loss.backward()
         optimizer.step()
 
