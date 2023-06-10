@@ -34,11 +34,12 @@ class Decoder(nn.Module):
         super(Decoder,self).__init__()
         self.decoder1 = GATConv(40,50)
         self.decoder2 = GATConv(50,input_channel)
+        self.decoder3 = InnerProductDecoder()
 
     def forward(self,x,edge_index):
         x = F.relu(self.decoder1(x,edge_index))
         x = F.relu(self.decoder2(x,edge_index))
-        adj_pred = InnerProductDecoder().forward_all(x, sigmoid=True)
+        adj_pred = self.decoder3.forward_all(x, sigmoid=True)
         return adj_pred, edge_index
 
 # Definition of GNF
@@ -121,8 +122,8 @@ class GNF(nn.Module):
         neg_y = z.new_zeros(neg_edge_index.size(1))
         y = torch.cat([pos_y, neg_y], dim=0)
 
-        pos_pred =  InnerProductDecoder().forward(z, pos_edge_index)
-        neg_pred =  InnerProductDecoder().forward(z, neg_edge_index)
+        pos_pred =  decoder.decoder3.forward(z, pos_edge_index)
+        neg_pred = decoder.decoder3.forward(z, neg_edge_index)
         pred = torch.cat([pos_pred, neg_pred], dim=0)
 
         y, pred = y.detach().cpu().numpy(), pred.detach().cpu().numpy()
@@ -171,6 +172,8 @@ if __name__ == "__main__":
         # Forward
 
         z1,z2,log_det_xz = gnf.forward(data_,edge_index)
+        print(log_det_xz)
+
 
         log_det_xz = log_det_xz.unsqueeze(0)
         log_det_xz = log_det_xz.mm(torch.ones(log_det_xz.t().size()))
@@ -179,7 +182,8 @@ if __name__ == "__main__":
         # Sample
         z = torch.cat((z1,z2),dim=1)
         n = Normal(z, torch.ones(z.size())*0.3)
-        z = n.sample()
+        z = n.sample() # bug needs to be fixed 
+        print(z.shape)
         # Inverse
         z1,z2, log_det_zx = gnf.inverse(z,edge_index)
         log_det_zx = log_det_zx.unsqueeze(0)
