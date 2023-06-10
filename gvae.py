@@ -34,12 +34,9 @@ class DeepVGAE(VGAE):
         return adj_pred
 
     def loss(self, x, pos_edge_index, all_edge_index):
-        print(x.shape)
         z = self.encode(x, pos_edge_index)
 
-        print(z.shape)
         a =  self.decoder(z, pos_edge_index, sigmoid=True) + 1e-15
-        print(a.shape)
         pos_loss = -torch.log(
            a).mean()
 

@@ -18,7 +18,7 @@ class Encoder(nn.Module):
 
     def __init__(self):
         super(Encoder,self).__init__()
-        self.encoder1 = GATConv(1433,50)
+        self.encoder1 = GATConv(500,50)
         self.encoder2 = GATConv(50,4)
 
     def forward(self,x):
@@ -33,12 +33,12 @@ class Decoder(nn.Module):
     def __init__(self):
         super(Decoder,self).__init__()
         self.decoder1 = GATConv(4,50)
-        self.decoder2 = GATConv(50,1433)
+        self.decoder2 = GATConv(50,500)
 
     def forward(self,x,edge_index):
         x = F.relu(self.decoder1(x,edge_index))
         x = F.relu(self.decoder2(x,edge_index))
-        adj_pred = InnerProductDecoder().forward_all(x, sigmoid= True)
+        adj_pred = InnerProductDecoder().forward_all(x, sigmoid=True)
         return adj_pred, edge_index
 
 # Definition of GNF
@@ -92,16 +92,54 @@ class GNF(nn.Module):
         return z1, z2, log_det_zx
 
 
+    def single_test(self, x, train_pos_edge_index, test_pos_edge_index, test_neg_edge_index, encoder, decoder):
+
+        z,_ = encoder(x)
+        
+        roc_auc_score, average_precision_score = self.test(z, test_pos_edge_index, test_neg_edge_index, decoder)
+        return roc_auc_score, average_precision_score
+
+    from torch import Tensor
+    from typing import Optional, Tuple
+    def test(self, z: Tensor, pos_edge_index: Tensor,
+             neg_edge_index: Tensor,decoder) -> Tuple[Tensor, Tensor]:
+        r"""Given latent variables :obj:`z`, positive edges
+        :obj:`pos_edge_index` and negative edges :obj:`neg_edge_index`,
+        computes area under the ROC curve (AUC) and average precision (AP)
+        scores.
+
+        Args:
+            z (torch.Tensor): The latent space :math:`\mathbf{Z}`.
+            pos_edge_index (torch.Tensor): The positive edges to evaluate
+                against.
+            neg_edge_index (torch.Tensor): The negative edges to evaluate
+                against.
+        """
+        from sklearn.metrics import average_precision_score, roc_auc_score
+
+        pos_y = z.new_ones(pos_edge_index.size(1))
+        neg_y = z.new_zeros(neg_edge_index.size(1))
+        y = torch.cat([pos_y, neg_y], dim=0)
+
+        pos_pred =  InnerProductDecoder().forward(z, pos_edge_index)
+        neg_pred =  InnerProductDecoder().forward(z, neg_edge_index)
+        pred = torch.cat([pos_pred, neg_pred], dim=0)
+
+        y, pred = y.detach().cpu().numpy(), pred.detach().cpu().numpy()
+
+        return roc_auc_score(y, pred), average_precision_score(y, pred)
+
+
 
 if __name__ == "__main__":
 
     torch.manual_seed(12345)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    dataset = Planetoid("datasets", 'Cora', transform=T.NormalizeFeatures())
+    dataset = Planetoid("datasets", 'PubMed', transform=T.NormalizeFeatures())
     data = dataset[0].to(device)
     all_edge_index = data.edge_index
-    data = train_test_split_edges(data, 0.02, 0.01)
+    data = train_test_split_edges(data, 0.05, 0.01)
         
 
     encoder = Encoder()
@@ -110,7 +148,7 @@ if __name__ == "__main__":
 
     params = list(encoder.parameters()) + list(decoder.parameters()) + list(gnf.parameters())
     optimizer = Adam(params , lr=0.01)
-    max_epoch = 10
+    max_epoch = 50
 
 
 
@@ -129,14 +167,16 @@ if __name__ == "__main__":
 
         # Sample
         z = torch.cat((z1,z2),dim=1)
-        n = Normal(z, torch.ones(z.size()))
-        z = n.sample()
+        n = Normal(z, torch.ones(z.size())*0.3)
+        z = n.sample()# bug here since no grad here
         # Inverse
         z1,z2, log_det_zx = gnf.inverse(z,edge_index)
         log_det_zx = log_det_zx.unsqueeze(0)
         log_det_zx = log_det_zx.mm(torch.ones(log_det_zx.t().size()))
         # Decoder
         z = torch.cat((z1,z2),dim=1)
+
+
         y, _ = decoder(z,edge_index)
 
         pos_loss = -torch.log(
@@ -154,6 +194,10 @@ if __name__ == "__main__":
         loss.backward()
         optimizer.step()
 
-  
+        roc_auc, ap = gnf.single_test(data,
+                                        data.train_pos_edge_index,
+                                        data.test_pos_edge_index,
+                                        data.test_neg_edge_index, encoder, decoder)
+        print("Epoch {} - Loss: {} ROC_AUC: {} Precision: {}".format(epoch, loss.cpu().item(), roc_auc, ap))
 
     print('Done')
