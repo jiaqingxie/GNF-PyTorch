@@ -38,7 +38,9 @@ python gnf.py --epochs 400 --lr 0.015 --dataset PubMed
 ```
 2. run GVAE
 ```python
-python train.py --load_config 'config/vgae.yaml'
+python gvae.py --epochs 400 --lr 0.015 --dataset PubMed
 ```
 
-Currently there's some bugs in the code that the AUC/ROC doesnt change. Also, QM9 needs to be included as mentioned in the paper as well. 
+Bugs in the code that the AUC/ROC doesnt change are fixed
+## TODO
+QM9 needs to be included as mentioned in the paper. 
