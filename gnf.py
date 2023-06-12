@@ -22,12 +22,10 @@ class Encoder(nn.Module):
     def __init__(self, input_channel):
         super(Encoder,self).__init__()
         self.encoder1 = GATConv(input_channel,32)
-        # self.encoder2 = GATConv(32,32)
 
     def forward(self,x):
         x, edge_index = x.x, x.train_pos_edge_index
         x = F.relu(self.encoder1(x,edge_index))
-        # x = F.relu(self.encoder2(x,edge_index))
         return x, edge_index
 
 # Definition of Encoder
@@ -35,13 +33,11 @@ class Decoder(nn.Module):
 
     def __init__(self, input_channel):
         super(Decoder,self).__init__()
-        # self.decoder1 = GCNConv(40,50)
-        # self.decoder2 = GCNConv(50,input_channel)
+        self.decoder2 = GCNConv(32,input_channel)
         self.decoder3 = InnerProductDecoder()
 
     def forward(self,x,edge_index):
-        # x = F.relu(self.decoder1(x,edge_index))
-        # x = F.relu(self.decoder2(x,edge_index))
+        x = F.relu(self.decoder2(x,edge_index))
         adj_pred = self.decoder3(x, edge_index, sigmoid=True) + 1e-15
         return adj_pred, edge_index
 
@@ -50,18 +46,15 @@ class GNF(nn.Module):
 
     def __init__(self):
         super(GNF,self).__init__()
-        self.F1 = GATConv(20,20)
-        self.F2 = GATConv(20,20)
-        self.G1 = GATConv(20,20)
-        self.G2 = GATConv(20,20)
-        self.gcn_mu = GATConv(32,16)
-        self.gcn_logvar = GATConv(32,16)
-        self.gcn_mu1 = GATConv(40,40)
-        self.gcn_logvar1 = GATConv(40,40)
-
+        self.F1 = GATConv(16,16)
+        self.F2 = GATConv(16,16)
+        self.G1 =  GATConv(16,16)
+        self.G2 =  GATConv(16,16)
+        self.gcn_mu = GATConv(32,32)
+        self.gcn_logvar = GATConv(32,32)
 
     def forward(self,x,edge_index):
-        x1,x2 = x[:,:20], x[:,20:]
+        x1,x2 = x[:,:16], x[:,16:]
         x1,x2,s1 = self.f_a(x1,x2,edge_index)
         x2,x1,s2 = self.f_b(x2,x1,edge_index)
         # Calculate Jacobian
@@ -93,7 +86,7 @@ class GNF(nn.Module):
         return z1,z2,s_x
 
     def inverse(self,z,edge_index):
-        z1,z2 = z[:,:20], z[:,20:]
+        z1,z2 = z[:,:16], z[:,16:]
         z1,z2,s1 = self.inverse_b(z1,z2,edge_index)
         z2,z1,s2 = self.inverse_a(z2,z1,edge_index)
         # Calculate Jacobian
@@ -106,7 +99,6 @@ class GNF(nn.Module):
         else:
             return mu
         
-    
     def kl_loss(self, mu: Tensor = None,
                 logstd: Tensor = None) -> Tensor:
 
@@ -115,12 +107,27 @@ class GNF(nn.Module):
 
     def single_test(self, x, train_pos_edge_index, test_pos_edge_index, test_neg_edge_index, encoder, decoder):
         with torch.no_grad():
-            z,_ = encoder(x)
+            z,edge_index  = encoder(x)
+
+            # Forward
+            z1,z2,_ = gnf.forward(z,edge_index)
+
+            # Sample
+            z = torch.cat((z1,z2),dim=1)
+
             mu = gnf.gcn_mu(z, edge_index)
             logstd = gnf.gcn_logvar(z, edge_index)
             logstd = logstd.clamp(max=10) 
 
             z = gnf.reparametrize(mu, logstd)
+
+            # Inverse
+            z1,z2, _ = gnf.inverse(z, edge_index)
+
+            z = torch.cat((z1,z2),dim=1)
+
+
+
         roc_auc_score, average_precision_score = self.test(z, test_pos_edge_index, test_neg_edge_index, decoder)
         return roc_auc_score, average_precision_score
 
@@ -197,30 +204,34 @@ if __name__ == "__main__":
 
         data_, edge_index = encoder(data)
 
-        # # Forward
-        # z1,z2,log_det_xz = gnf.forward(data_,edge_index)
-        # log_det_xz = log_det_xz.unsqueeze(0)
-        # log_det_xz = log_det_xz.mm(torch.ones(log_det_xz.t().size()))
+        # Forward
+        z1,z2,log_det_xz = gnf.forward(data_,edge_index)
+        log_det_xz = log_det_xz.unsqueeze(0)
+        log_det_xz = log_det_xz.mm(torch.ones(log_det_xz.t().size()))
 
         # # Sample
-        # z = torch.cat((z1,z2),dim=1)
-        mu = gnf.gcn_mu(data_, edge_index)
-        logstd = gnf.gcn_logvar(data_, edge_index)
-        logstd = logstd.clamp(max=0.1) 
+        z = torch.cat((z1,z2),dim=1)
+
+        mu = gnf.gcn_mu(z, edge_index)
+        logstd = gnf.gcn_logvar(z, edge_index)
+        logstd = logstd.clamp(max=10) 
 
         z = gnf.reparametrize(mu, logstd)
         # n = Normal(z, torch.ones(z.size())*0.3)
         # z = n.sample() # bug needs to be fixed 
         # print(z.shape)
-        kl_loss = 1 / data_.size(0) * gnf.kl_loss(mu, logstd)
+        kl_loss = 1 / z.size(0) * gnf.kl_loss(mu, logstd)
 
         # Inverse
-        # z1,z2, log_det_zx = gnf.inverse(z,edge_index)
-        # log_det_zx = log_det_zx.unsqueeze(0)
-        # log_det_zx = log_det_zx.mm(torch.ones(log_det_zx.t().size()))
+        z1,z2, log_det_zx = gnf.inverse(z,edge_index)
+        log_det_zx = log_det_zx.unsqueeze(0)
+        log_det_zx = log_det_zx.mm(torch.ones(log_det_zx.t().size()))
 
         # Decoder
-        # z = torch.cat((z1,z2),dim=1)
+        z = torch.cat((z1,z2),dim=1)
+
+
+        
         y,_ = decoder(z, edge_index =  edge_index) 
 
         pos_loss = -torch.log(
@@ -236,7 +247,7 @@ if __name__ == "__main__":
 
         neg_loss = -torch.log(1 - a + 1e-15).mean()
 
-        loss = neg_loss + pos_loss + kl_loss
+        loss = neg_loss + pos_loss + kl_loss 
         loss.backward()
         optimizer.step()
 
