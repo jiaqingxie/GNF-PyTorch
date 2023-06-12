@@ -34,7 +34,7 @@ Related papers:
 How to run:
 1. run GNF
 ```python
-python gnf.py --epochs 10 --lr 0.015 --dataset PubMed
+python gnf.py --epochs 400 --lr 0.015 --dataset PubMed
 ```
 2. run GVAE
 ```python
