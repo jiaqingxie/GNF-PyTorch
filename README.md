@@ -32,13 +32,13 @@ Related papers:
 ```
 
 How to run:
-1. run GNF
+1. run GNF on Planetoid
 ```python
-python gnf.py --epochs 400 --lr 0.015 --dataset PubMed
+python gnf.py --epochs 400 --lr 0.015 --dataset Cora
 ```
-2. run GVAE
+2. run GVAE on Planetoid
 ```python
-python gvae.py --epochs 400 --lr 0.015 --dataset PubMed
+python gvae.py --epochs 400 --lr 0.015 --dataset Cora
 ```
 
 Bugs in the code that the AUC/ROC doesnt change are fixed
