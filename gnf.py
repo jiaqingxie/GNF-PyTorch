@@ -2,9 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch_geometric.transforms as T
-import torch
 from torch import Tensor
-from torch_geometric.data import Data
 from torch_geometric.nn import GATConv, GCNConv
 from torch.distributions import Normal
 from torch_geometric.nn.models import InnerProductDecoder
@@ -13,8 +11,7 @@ from torch_geometric.datasets import Planetoid
 from torch.optim import Adam
 from torch_geometric.utils import train_test_split_edges
 import argparse
-from torch import Tensor
-from typing import Optional, Tuple
+from typing import Tuple
 
 # Definition of Encoder
 class Encoder(nn.Module):
@@ -28,17 +25,17 @@ class Encoder(nn.Module):
         x = F.relu(self.encoder1(x,edge_index))
         return x, edge_index
 
-# Definition of Encoder
+# Definition of Decoder
 class Decoder(nn.Module):
 
     def __init__(self, input_channel):
         super(Decoder,self).__init__()
-        self.decoder2 = GCNConv(32,input_channel)
-        self.decoder3 = InnerProductDecoder()
+        self.decoder1 = GCNConv(32, input_channel)
+        self.decoder2 = InnerProductDecoder()
 
     def forward(self,x,edge_index):
-        x = F.relu(self.decoder2(x,edge_index))
-        adj_pred = self.decoder3(x, edge_index, sigmoid=True) + 1e-15
+        x = F.relu(self.decoder1(x, edge_index))
+        adj_pred = self.decoder2(x, edge_index, sigmoid=True) + 1e-15
         return adj_pred, edge_index
 
 # Definition of GNF
@@ -64,25 +61,25 @@ class GNF(nn.Module):
     def f_a(self,x1,x2,edge_index):
         s_x = self.F1(x1,edge_index)
         t_x = self.F2(x1,edge_index)
-        x1 = x2 * torch.exp(s_x) + t_x
+        x1 = x2 * torch.exp(s_x) + t_x # equation 3.1 in GNF paper 
         return x1,x2,s_x
 
     def f_b(self,x1,x2,edge_index):
         s_x = self.G1(x1,edge_index)
         t_x = self.G2(x1,edge_index)
-        x1 = x2 * torch.exp(s_x) + t_x
+        x1 = x2 * torch.exp(s_x) + t_x # equation 3.4 in GNF paper
         return x1,x2,s_x
 
     def inverse_b(self,z1,z2,edge_index):
         s_x = self.G1(z1,edge_index)
         t_x = self.G2(z1,edge_index)
-        z2 = (z2 - t_x) * torch.exp(-s_x)
+        z2 = (z2 - t_x) * torch.exp(-s_x) # equation 4.3 in GNF paper 
         return z1,z2,s_x
 
     def inverse_a(self,z1,z2,edge_index):
         s_x = self.F1(z1,edge_index)
         t_x = self.F2(z1,edge_index)
-        z2 = (z2 - t_x) * torch.exp(-s_x)
+        z2 = (z2 - t_x) * torch.exp(-s_x) # equation 4.4 in GNF paper 
         return z1,z2,s_x
 
     def inverse(self,z,edge_index):
